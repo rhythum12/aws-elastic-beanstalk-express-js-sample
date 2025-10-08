@@ -107,17 +107,28 @@ pipeline {
                             echo "Workspace contents:"
                             pwd && ls -la
 
+                            DOCKERFILE_PATH=""
                             if [ -f Dockerfile ]; then
-                              echo "Building image ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}"
-                              docker build -t ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER} .
+                              DOCKERFILE_PATH="Dockerfile"
+                            elif [ -f DockerFile ]; then
+                              DOCKERFILE_PATH="DockerFile"
+                            fi
+
+                            if [ -n "$DOCKERFILE_PATH" ]; then
+                              echo "Building image ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER} using $DOCKERFILE_PATH"
+                              docker build -f "$DOCKERFILE_PATH" -t ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER} .
                               docker tag ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER} ${DOCKER_IMAGE_NAME}:latest
                               docker images | grep ${DOCKER_IMAGE_NAME}
                               echo "IMAGE_BUILT=true" > .image_built
                             else
-                              echo "Dockerfile not found in $(pwd). Skipping Docker build."
+                              echo "No Dockerfile found (Dockerfile/DockerFile) in $(pwd). Skipping Docker build."
                             fi
                         '''
-                        echo "Docker image built successfully."
+                        if (fileExists('.image_built')) {
+                            echo "Docker image built successfully."
+                        } else {
+                            echo "No Docker image was built."
+                        }
                     } catch (Exception e) {
                         echo "Docker build failed: ${e.getMessage()}"
                         echo "Continuing without Docker build..."
@@ -151,7 +162,11 @@ pipeline {
                                 fi
                             '''
                         }
-                        echo "Docker images pushed successfully."
+                        if (fileExists('.image_built')) {
+                            echo "Docker images pushed successfully."
+                        } else {
+                            echo "Docker image push skipped."
+                        }
                     } catch (Exception e) {
                         echo "Docker push failed: ${e.getMessage()}"
                         sh 'docker images | grep ${DOCKER_IMAGE_NAME} || echo "No images found to push."'
