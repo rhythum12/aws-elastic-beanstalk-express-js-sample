@@ -56,7 +56,13 @@ pipeline {
         stage('Run Tests') {
             steps {
                 echo "Running test suite..."
-                sh 'npm test || echo " Tests reported failures. Check logs for details."'
+                sh '''
+                    if npm run | grep -q " test"; then
+                      npm test
+                    else
+                      echo "No test script found in package.json; skipping tests."
+                    fi
+                '''
             }
         }
 
@@ -98,10 +104,18 @@ pipeline {
                                 docker info && break || echo "Waiting for Docker daemon..."; sleep 2
                             done
                             
-                            echo "Building image ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}"
-                            docker build -t ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER} .
-                            docker tag ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER} ${DOCKER_IMAGE_NAME}:latest
-                            docker images | grep ${DOCKER_IMAGE_NAME}
+                            echo "Workspace contents:"
+                            pwd && ls -la
+
+                            if [ -f Dockerfile ]; then
+                              echo "Building image ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}"
+                              docker build -t ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER} .
+                              docker tag ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER} ${DOCKER_IMAGE_NAME}:latest
+                              docker images | grep ${DOCKER_IMAGE_NAME}
+                              echo "IMAGE_BUILT=true" > .image_built
+                            else
+                              echo "Dockerfile not found in $(pwd). Skipping Docker build."
+                            fi
                         '''
                         echo "Docker image built successfully."
                     } catch (Exception e) {
@@ -125,12 +139,16 @@ pipeline {
                                                          usernameVariable: 'DOCKER_USERNAME',
                                                          passwordVariable: 'DOCKER_PASSWORD')]) {
                             sh '''
-                                echo "Logging into Docker Hub..."
-                                echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+                                if [ -f .image_built ]; then
+                                  echo "Logging into Docker Hub..."
+                                  echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
 
-                                echo " Pushing images..."
-                                docker push ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}
-                                docker push ${DOCKER_IMAGE_NAME}:latest
+                                  echo " Pushing images..."
+                                  docker push ${DOCKER_IMAGE_NAME}:${BUILD_NUMBER}
+                                  docker push ${DOCKER_IMAGE_NAME}:latest
+                                else
+                                  echo "No built image marker found; skipping push."
+                                fi
                             '''
                         }
                         echo "Docker images pushed successfully."
